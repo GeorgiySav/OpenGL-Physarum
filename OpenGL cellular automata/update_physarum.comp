@@ -1,0 +1,194 @@
+#version 460 core
+
+struct S
+{   
+	float speed;
+    float sDis;
+    float sAngle;
+    int sRad;
+	float tAngle;
+
+	float r;
+    float g;    // sending a vec4 doesn't work
+    float b;
+    float a;
+};
+
+struct P
+{
+	vec2 pos;
+	float rot;
+
+	int sp;
+};
+
+layout (std430, binding = 3) buffer  Ps
+{
+	P particles[];
+};
+
+layout (std430, binding = 4) buffer Ss
+{
+	S species[];
+};
+
+
+float PHI = 1.61803398874989484820459;
+
+float gold_noise(in vec2 xy, in float seed)
+{
+    return fract(tan(distance(xy*PHI, xy)*seed)*xy.x);
+}
+
+highp float rand(vec2 co)
+{
+    highp float a = 12.9898;
+    highp float b = 78.233;
+    highp float c = 43758.5453;
+    highp float dt= dot(co.xy ,vec2(a,b));
+    highp float sn= mod(dt,3.14);
+    return fract(sin(sn) * c);
+}
+
+uniform float deltaTime;
+
+layout(local_size_x = 16, local_size_y = 1, local_size_z = 1) in;
+layout(rgba32f, binding = 0) uniform image2D screen;
+
+float Sense(vec2 pos, float rotation, uint sp)
+{
+
+    float weightr = 0;
+    float weightg = 0;
+    float weightb = 0;
+    float totalweight = 0;
+    
+    uint sensorRadius = species[sp].sRad;
+    
+    uint pointx = uint(floor(species[sp].sDis * cos(rotation) + pos.x));
+    uint pointy = uint(floor(species[sp].sDis  * sin(rotation) + pos.y));
+    
+    vec4 pixelValue = imageLoad(screen, ivec2(pointx, pointy));
+    
+    for (uint mx = pointx - sensorRadius; mx <= pointx + sensorRadius; mx++)
+    {
+        for (uint my = pointy - sensorRadius; my <= pointy + sensorRadius; my++)
+        {        
+            weightr += pixelValue.r;
+            weightg += pixelValue.g;
+            weightb += pixelValue.b;
+        }
+    }
+    totalweight = weightr + weightb + weightg;
+    
+    if (species[sp].r == 0)
+        totalweight -= weightr;
+
+    
+    if (species[sp].g == 0)
+        totalweight -= weightg;
+
+    
+    if (species[sp].b == 0)
+        totalweight -= weightb;
+    
+    return totalweight;
+}
+
+void main()
+{
+
+	uint idx =  gl_GlobalInvocationID.x;
+
+    if (idx > particles.length() - 1)
+		return;
+
+    ivec2 dims = imageSize(screen);
+
+    P physarum = particles[idx];
+
+    ivec2 leftpoint = ivec2(0, 0);
+    ivec2 middlepoint = ivec2(0, 0);
+    ivec2 rightpoint = ivec2(0, 0);
+	
+    float leftweight = Sense(physarum.pos, physarum.rot - species[physarum.sp].sAngle, physarum.sp);
+    float middleweight = Sense(physarum.pos, physarum.rot, physarum.sp);;
+    float rightweight = Sense(physarum.pos, physarum.rot + species[physarum.sp].sAngle, physarum.sp);;
+    
+    if (middleweight > leftweight && middleweight > rightweight)
+    {
+    
+    }
+    else if (leftweight > rightweight)
+    {
+			
+        //p.rotation = p.rotation - (sensorangle * deltatime * random(float2(0.9f, 1.1f)));
+        physarum.rot = physarum.rot - species[physarum.sp].tAngle * deltaTime; // * turningstrength * deltatime;
+    }
+    else if (rightweight > leftweight)
+    {
+	
+        //p.rotation = p.rotation + (sensorangle * deltatime * random(float2(0.9f, 1.1f)));
+        physarum.rot = physarum.rot + species[physarum.sp].tAngle * deltaTime; // * turningstrength * deltatime;
+    }
+    else if (rightweight == leftweight && rightweight > 0)
+    {
+    
+        if (rand(physarum.pos) >= 0.5)
+        {
+            //p.rotation = p.rotation - (sensorangle * deltatime * random(float2(0.9f, 1.1f)));
+            physarum.rot = physarum.rot - species[physarum.sp].tAngle * deltaTime; // * turningstrength * deltatime;
+        }
+        else
+        {
+            //p.rotation = p.rotation + (sensorangle * deltatime * random(float2(0.9f, 1.1f)));
+            physarum.rot = physarum.rot + species[physarum.sp].tAngle * deltaTime; // * turningstrength * deltatime;
+        }
+    }
+    
+    vec2 change = vec2(cos(physarum.rot), sin(physarum.rot));
+	physarum.pos = physarum.pos + change * species[physarum.sp].speed * deltaTime;
+	
+	if (physarum.pos.x < 1)
+	{
+		physarum.pos.x = 1;
+        
+        if (physarum.rot < 180)
+		    physarum.rot = 180 - physarum.rot;
+        else           
+            physarum.rot = 540 - physarum.rot;
+        
+    }
+	else if (physarum.pos.x > dims.x - 1)
+	{
+        physarum.pos.x = dims.x - 1;
+        
+        if (physarum.rot < 180)
+            physarum.rot = 180 - physarum.rot;
+        else
+            physarum.rot = 540 - physarum.rot;
+        
+    }
+    
+	if (physarum.pos.y < 1)
+	{
+		physarum.pos.y = 1;
+		physarum.rot = 360 - physarum.rot;
+	}
+	else if (physarum.pos.y > dims.y - 1)
+	{
+		physarum.pos.y = dims.y - 1;
+		physarum.rot = 360 - physarum.rot;
+	}
+    
+    particles[idx] = physarum;
+
+    ivec2 pixel_coords = ivec2(particles[idx].pos);
+    vec4 pixel;
+    pixel.r = species[physarum.sp].r;
+    pixel.g = species[physarum.sp].g;
+    pixel.b = species[physarum.sp].b;
+    imageStore(screen, pixel_coords, pixel);
+
+
+}

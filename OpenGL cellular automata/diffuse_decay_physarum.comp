@@ -1,0 +1,47 @@
+#version 460 core
+
+uniform float diffuseRate;
+
+uniform float deltaTime;
+uniform float decayRate;
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(rgba32f, binding = 0) uniform image2D screen;
+
+void main()
+{
+
+	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
+
+	ivec2 dims = imageSize(screen);
+
+	if (pixel_coords.x > dims.x || pixel_coords.y > dims.y)
+		return;
+
+	vec4 oldValue = imageLoad(screen, pixel_coords);
+	
+	vec4 average = vec4(0, 0, 0, 0);
+	uint numPixels = 0;
+
+	for (int x = pixel_coords.x - 1; x < pixel_coords.x + 2; x++)
+	{
+		if (x >= 0 && x < dims.x)
+		{
+			for (int y = pixel_coords.y - 1; y < pixel_coords.y + 2; y++)
+			{
+				if (y >= 0 && y < dims.y)
+				{
+					average += imageLoad(screen, ivec2(x, y));
+					numPixels++;
+				}
+			}
+		}
+	}
+
+	average /= numPixels;
+
+	vec4 diffused = mix(oldValue, average, diffuseRate * deltaTime);
+	vec4 evaporate = diffused - decayRate * deltaTime;
+
+	imageStore(screen, pixel_coords, evaporate);
+}

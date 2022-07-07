@@ -1,0 +1,24 @@
+#version 460 core
+
+uniform float decayRate;
+
+uniform float deltaTime;
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(rgba32f, binding = 0) uniform image2D screen;
+
+void main()
+{
+
+	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
+
+	if (pixel_coords.x > imageSize(screen).x || pixel_coords.y > imageSize(screen).y)
+		return;
+
+	vec4 newValue = imageLoad(screen, pixel_coords);
+	newValue.r = float(newValue.r - decayRate * deltaTime);
+	newValue.g = float(newValue.g - decayRate * deltaTime);
+	newValue.b = float(newValue.b - decayRate * deltaTime);
+
+	imageStore(screen, pixel_coords, newValue);
+}
